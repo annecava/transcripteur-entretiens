@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcripteur d'entretiens</title>
+<style>
+  :root {
+    --bg:      #1C1C1E;
+    --card:    #2C2C2E;
+    --border:  #3A3A3C;
+    --accent:  #0A84FF;
+    --text:    #F2F2F7;
+    --sub:     #8E8E93;
+    --success: #32D74B;
+    --error:   #FF453A;
+    --radius:  10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 36px 16px 60px;
+  }
+  header { text-align: center; margin-bottom: 28px; }
+  header h1 { font-size: 22px; font-weight: 600; margin-bottom: 5px; }
+  header p  { font-size: 12px; color: var(--sub); }
+
+  .container { width: 100%; max-width: 640px; display: flex; flex-direction: column; gap: 16px; }
+
+  .drop-zone {
+    background: var(--card);
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 30px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    position: relative;
+  }
+  .drop-zone.dragover { border-color: var(--accent); background: #1a2a3a; }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .drop-icon  { font-size: 30px; margin-bottom: 8px; }
+  .drop-title { font-size: 14px; margin-bottom: 4px; }
+  .drop-sub   { font-size: 11px; color: var(--sub); margin-bottom: 12px; }
+  .drop-btn {
+    display: inline-block; background: var(--accent); color: white;
+    border: none; border-radius: 8px; padding: 7px 18px; font-size: 13px;
+    pointer-events: none;
+  }
+
+  .section-label { font-size: 11px; color: var(--sub); margin-bottom: 4px; }
+  .file-list {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; max-height: 230px; overflow-y: auto;
+  }
+  .file-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+  }
+  .file-row:last-child { border-bottom: none; }
+  .f-icon   { font-size: 13px; width: 18px; text-align: center; flex-shrink: 0; }
+  .f-info   { flex: 1; overflow: hidden; }
+  .f-name   { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .f-dur    { font-size: 10px; color: var(--sub); margin-top: 1px; }
+  .f-status { font-size: 11px; flex-shrink: 0; min-width: 72px; text-align: right; }
+  .f-remove {
+    background: none; border: none; color: var(--sub);
+    font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 4px; transition: color .15s;
+  }
+  .f-remove:hover { color: var(--error); }
+  .st-waiting { color: var(--sub); }
+  .st-running { color: var(--accent); }
+  .st-done    { color: var(--success); }
+  .st-error   { color: var(--error); }
+
+  .progress-section { display: flex; flex-direction: column; gap: 9px; }
+  .prog-block label {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--sub); margin-bottom: 4px;
+  }
+  .prog-track { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
+  .prog-fill  { height: 100%; background: var(--accent); border-radius: 4px; width: 0%; transition: width .4s ease; }
+
+  #status-msg { font-size: 12px; color: var(--sub); text-align: center; min-height: 18px; }
+
+  #run-btn {
+    background: var(--accent); color: white; border: none; border-radius: 8px;
+    padding: 12px; font-size: 14px; font-weight: 500; cursor: pointer; width: 100%;
+    transition: background .15s;
+  }
+  #run-btn:disabled { background: var(--border); color: var(--sub); cursor: not-allowed; }
+  #run-btn:not(:disabled):hover { background: #0060CC; }
+
+  .transcript-wrap { display: none; flex-direction: column; gap: 8px; }
+  .transcript-wrap.visible { display: flex; }
+  .tx-header { display: flex; justify-content: space-between; align-items: center; }
+  #download-btn {
+    background: var(--success); color: #000; border: none; border-radius: 8px;
+    padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; display: none;
+  }
+  #download-btn:hover { opacity: .85; }
+  #transcript-box {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; height: 300px; overflow-y: auto;
+    font-size: 13px; line-height: 1.8; color: var(--text);
+  }
+  .marker-line {
+    display: block; color: var(--accent);
+    font-size: 11px; font-weight: 600; letter-spacing: .4px;
+    margin: 16px 0 4px;
+  }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.7); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 14px; padding: 32px 28px; max-width: 420px; width: 100%;
+  }
+  .modal h2 { font-size: 17px; margin-bottom: 18px; }
+  .modal-card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.7; color: var(--sub);
+  }
+  .modal-card .head { color: var(--text); font-weight: 600; display: block; margin-bottom: 10px; }
+  .modal-card .green { color: var(--success); display: block; margin-top: 6px; }
+  .modal-card .bold  { color: var(--text); }
+  .modal-note { font-size: 11px; color: var(--sub); text-align: center; margin-bottom: 18px; }
+  .modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal-cancel  { background: var(--card); color: var(--sub); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+  .modal-confirm { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 8px 18px; font-size: 13px; cursor: pointer; }
+
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Transcripteur d'entretiens</h1>
+  <p>Utilise Whisper · fonctionne entièrement dans votre navigateur · aucune installation</p>
+</header>
+
+<div class="container">
+
+  <div class="drop-zone" id="drop-zone">
+    <input type="file" id="file-input" multiple
+           accept=".mp3,.mp4,.m4a,.wav,.ogg,.flac,.webm,.mkv">
+    <div class="drop-icon">🎙</div>
+    <div class="drop-title">Glisser un ou plusieurs fichiers ici</div>
+    <div class="drop-sub">mp3 · mp4 · m4a · wav · ogg · flac · webm · mkv</div>
+    <div class="drop-btn">Choisir des fichiers…</div>
+  </div>
+
+  <div id="file-list-wrap" style="display:none">
+    <div class="section-label">Fichiers</div>
+    <div class="file-list" id="file-list"></div>
+  </div>
+
+  <div class="progress-section" id="progress-section" style="display:none">
+    <div class="prog-block">
+      <label><span id="current-label">Fichier en cours</span><span id="eta-label"></span></label>
+      <div class="prog-track"><div class="prog-fill" id="file-fill"></div></div>
+    </div>
+    <div class="prog-block">
+      <label><span id="overall-label">Progression globale</span><span></span></label>
+      <div class="prog-track"><div class="prog-fill" id="overall-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="status-msg"></div>
+  <button id="run-btn" disabled>Tout transcrire</button>
+
+  <div class="transcript-wrap" id="transcript-wrap">
+    <div class="tx-header">
+      <span class="section-label" id="tx-label">Transcription</span>
+      <button id="download-btn">⬇ Télécharger .txt</button>
+    </div>
+    <div id="transcript-box"></div>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h2>Première utilisation</h2>
+    <div class="modal-card">
+      <span class="head">📦 Téléchargement du modèle Whisper</span>
+      L'application utilise Whisper (modèle medium), un modèle de reconnaissance
+      vocale qui s'exécute entièrement dans votre navigateur.
+      Vos fichiers audio ne quittent jamais votre ordinateur.<br><br>
+      <span class="bold">Taille : environ 1,5 Go</span><br>
+      <span class="bold">Durée estimée : 3 à 8 minutes</span> selon votre connexion
+      <span class="green">✓ Ce téléchargement n'a lieu qu'une seule fois.</span>
+      <span class="green">✓ Le modèle est mis en cache dans votre navigateur.</span>
+      <span class="green">✓ L'application fonctionne ensuite hors ligne.</span>
+    </div>
+    <p class="modal-note">Assurez-vous d'être connecté à internet avant de continuer.</p>
+    <div class="modal-btns">
+      <button class="modal-cancel" id="modal-cancel">Annuler</button>
+      <button class="modal-confirm" id="modal-confirm">Télécharger et démarrer →</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.2/dist/transformers.min.js';
+
+env.allowLocalModels = false;
+env.useBrowserCache  = true;
+
+const AUDIO_EXTS  = new Set(['.mp3','.mp4','.m4a','.wav','.ogg','.flac','.webm','.mkv']);
+const MODEL_ID    = 'onnx-community/whisper-medium';
+const MARKER_SECS = 5 * 60;
+const MODEL_KEY   = 'transcripteur_model_cached';
+
+let queue   = [];
+let pipe    = null;
+let allText = [];
+
+const $  = id => document.getElementById(id);
+const dropZone     = $('drop-zone');
+const fileInput    = $('file-input');
+const fileListWrap = $('file-list-wrap');
+const fileListEl   = $('file-list');
+const progressSec  = $('progress-section');
+const fileFill     = $('file-fill');
+const overallFill  = $('overall-fill');
+const currentLbl   = $('current-label');
+const etaLbl       = $('eta-label');
+const overallLbl   = $('overall-label');
+const statusMsg    = $('status-msg');
+const runBtn       = $('run-btn');
+const txWrap       = $('transcript-wrap');
+const txBox        = $('transcript-box');
+const txLabel      = $('tx-label');
+const downloadBtn  = $('download-btn');
+const modalOverlay = $('modal-overlay');
+
+// ── Drop zone ──────────────────────────────────────────────────
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  [...e.dataTransfer.files].forEach(addFile);
+});
+fileInput.addEventListener('change', () => {
+  [...fileInput.files].forEach(addFile); fileInput.value = '';
+});
+
+// ── Files ──────────────────────────────────────────────────────
+function addFile(file) {
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  if (!AUDIO_EXTS.has(ext)) return;
+  if (queue.find(e => e.file.name === file.name && e.file.size === file.size)) return;
+  const entry = { file, status: 'waiting', duration: 0 };
+  queue.push(entry);
+  renderRow(entry);
+  fileListWrap.style.display = 'block';
+  runBtn.disabled = false;
+  getAudioDuration(file).then(d => {
+    entry.duration = d;
+    if (entry.durEl) entry.durEl.textContent = fmtAudioDur(d);
+  });
+  updateOverall();
+}
+
+function getAudioDuration(file) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const a = new Audio();
+    a.addEventListener('loadedmetadata', () => { URL.revokeObjectURL(url); resolve(a.duration || 0); });
+    a.addEventListener('error', () => { URL.revokeObjectURL(url); resolve(0); });
+    a.src = url;
+  });
+}
+
+const ST = {
+  waiting: { icon: '◦', cls: 'st-waiting', label: 'En attente' },
+  running: { icon: '▶', cls: 'st-running', label: 'En cours'   },
+  done:    { icon: '✓', cls: 'st-done',    label: 'Terminé'    },
+  error:   { icon: '✗', cls: 'st-error',   label: 'Erreur'     },
+};
+
+function renderRow(entry) {
+  const row = document.createElement('div'); row.className = 'file-row';
+  const icon = document.createElement('span'); icon.className = 'f-icon st-waiting'; icon.textContent = '◦';
+  const info = document.createElement('div'); info.className = 'f-info';
+  const name = document.createElement('div'); name.className = 'f-name'; name.textContent = entry.file.name;
+  const dur  = document.createElement('div'); dur.className  = 'f-dur';  dur.textContent  = '';
+  entry.durEl = dur;
+  info.append(name, dur);
+  const st = document.createElement('span'); st.className = 'f-status st-waiting'; st.textContent = 'En attente';
+  const rm = document.createElement('button'); rm.className = 'f-remove'; rm.textContent = '✕'; rm.title = 'Retirer';
+  rm.addEventListener('click', () => removeEntry(entry));
+  row.append(icon, info, st, rm);
+  fileListEl.appendChild(row);
+  Object.assign(entry, { rowEl: row, iconEl: icon, stEl: st, rmEl: rm });
+}
+
+function setRowStatus(entry, status) {
+  entry.status = status;
+  const s = ST[status];
+  entry.iconEl.textContent = s.icon; entry.iconEl.className = 'f-icon ' + s.cls;
+  entry.stEl.textContent   = s.label; entry.stEl.className  = 'f-status ' + s.cls;
+  entry.rmEl.style.visibility = status === 'running' ? 'hidden' : 'visible';
+}
+
+function removeEntry(entry) {
+  if (entry.status === 'running') return;
+  entry.rowEl.remove(); queue = queue.filter(e => e !== entry);
+  updateOverall();
+  if (!queue.length) { fileListWrap.style.display = 'none'; runBtn.disabled = true; }
+}
+
+function updateOverall() {
+  const total = queue.length;
+  const done  = queue.filter(e => e.status === 'done' || e.status === 'error').length;
+  if (!total) { overallFill.style.width = '0%'; return; }
+  overallLbl.textContent = `Progression globale : ${done}/${total} fichier(s)`;
+  overallFill.style.width = (done / total * 100) + '%';
+}
+
+// ── Formatters ─────────────────────────────────────────────────
+function fmtAudioDur(s) {
+  if (!s || s <= 0) return '';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${String(m).padStart(2,'0')}min` : `${m} min`;
+}
+function fmtDur(s) {
+  if (s <= 0) return '?';
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return m > 0 ? `${m} min ${String(sec).padStart(2,'0')} s` : `${sec} s`;
+}
+function fmtTimestamp(s) {
+  const t = Math.floor(s), h = Math.floor(t/3600), m = Math.floor((t%3600)/60), sec = t%60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+    : `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+// ── Modal ──────────────────────────────────────────────────────
+function modelCached() { return localStorage.getItem(MODEL_KEY) === '1'; }
+function markModelCached() { localStorage.setItem(MODEL_KEY, '1'); }
+
+$('modal-cancel').addEventListener('click',  () => modalOverlay.classList.remove('visible'));
+$('modal-confirm').addEventListener('click', () => { modalOverlay.classList.remove('visible'); startAll(); });
+runBtn.addEventListener('click', () => {
+  if (!modelCached()) modalOverlay.classList.add('visible');
+  else startAll();
+});
+
+// ── Pipeline ───────────────────────────────────────────────────
+async function loadPipeline() {
+  if (pipe) return pipe;
+  statusMsg.textContent = 'Chargement du modèle Whisper…';
+  pipe = await pipeline('automatic-speech-recognition', MODEL_ID, {
+    dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
+    progress_callback: p => {
+      if (p.status === 'downloading') {
+        const pct = p.total ? Math.round(p.loaded / p.total * 100) : 0;
+        statusMsg.textContent = `Téléchargement du modèle… ${pct}%`;
+        fileFill.style.width = pct + '%';
+      }
+    }
+  });
+  markModelCached();
+  statusMsg.textContent = '';
+  return pipe;
+}
+
+// ── Run ────────────────────────────────────────────────────────
+async function startAll() {
+  runBtn.disabled = true;
+  progressSec.style.display = 'flex';
+  txWrap.classList.add('visible');
+  txBox.innerHTML = ''; downloadBtn.style.display = 'none'; allText = [];
+
+  try { await loadPipeline(); }
+  catch(e) { statusMsg.textContent = 'Erreur de chargement : ' + e.message; runBtn.disabled = false; return; }
+
+  for (const entry of queue) {
+    if (entry.status === 'done' || entry.status === 'error') continue;
+    await processEntry(entry);
+  }
+  onAllDone();
+}
+
+async function processEntry(entry) {
+  setRowStatus(entry, 'running');
+  currentLbl.textContent = `En cours : ${entry.file.name}`;
+  txLabel.textContent    = `Transcription — ${entry.file.name}`;
+  txBox.innerHTML = ''; fileFill.style.width = '0%'; etaLbl.textContent = '';
+  statusMsg.textContent  = 'Décodage audio…';
+
+  const fileLines = [];
+  const startWall = Date.now();
+
+  try {
+    // Decode audio → mono Float32Array @ 16 kHz
+    const buf     = await entry.file.arrayBuffer();
+    const actx    = new AudioContext({ sampleRate: 16000 });
+    const decoded = await actx.decodeAudioData(buf);
+    actx.close();
+
+    const raw      = decoded.getChannelData(0);
+    const totalDur = decoded.duration;
+    entry.duration = totalDur;
+    if (entry.durEl) entry.durEl.textContent = fmtAudioDur(totalDur);
+
+    // Process in 30-second chunks for progressive display
+    const SR = 16000, CHUNK = SR * 30;
+    const nChunks   = Math.ceil(raw.length / CHUNK);
+    let nextMarker  = MARKER_SECS;
+    let paragraph   = [];
+
+    statusMsg.textContent = 'Transcription en cours…';
+
+    for (let c = 0; c < nChunks; c++) {
+      const sliceStart = c * CHUNK;
+      const chunk      = raw.slice(sliceStart, sliceStart + CHUNK);
+      const offsetSec  = sliceStart / SR;
+
+      // Update progress
+      const pct = Math.round(c / nChunks * 100);
+      fileFill.style.width = pct + '%';
+      const elapsed = (Date.now() - startWall) / 1000;
+      if (pct > 3 && elapsed > 2) {
+        const remaining = Math.max(0, elapsed / (pct / 100) - elapsed);
+        etaLbl.textContent = `Temps restant : ${fmtDur(remaining)}`;
+      }
+
+      const result = await pipe(chunk, {
+        language: 'french',
+        task: 'transcribe',
+        return_timestamps: true,
+        chunk_length_s: 30,
+      });
+
+      const chunks = result.chunks || [{ text: result.text, timestamp: [0, 30] }];
+
+      for (const ch of chunks) {
+        const absStart = offsetSec + (ch.timestamp?.[0] ?? 0);
+
+        // Insert 5-min markers
+        while (absStart >= nextMarker) {
+          if (paragraph.length) {
+            const t = paragraph.join(' ');
+            fileLines.push(t); appendText(t); paragraph = [];
+          }
+          const marker = `--- ${fmtTimestamp(nextMarker)} ---`;
+          fileLines.push('\n' + marker);
+          appendMarker(marker);
+          nextMarker += MARKER_SECS;
+        }
+
+        const t = (ch.text || '').trim();
+        if (t) paragraph.push(t);
+
+        if (paragraph.join(' ').length > 300) {
+          const txt = paragraph.join(' ');
+          fileLines.push(txt); appendText(txt); paragraph = [];
+        }
+      }
+    }
+
+    // Flush remaining paragraph
+    if (paragraph.length) {
+      const txt = paragraph.join(' ');
+      fileLines.push(txt); appendText(txt);
+    }
+
+    fileFill.style.width = '100%';
+    setRowStatus(entry, 'done');
+
+    // Build .txt content
+    const dateStr = new Date().toISOString().slice(0,16).replace('T',' ');
+    const header  =
+      `TRANSCRIPTION\n` +
+      `Fichier : ${entry.file.name}\n` +
+      `Date    : ${dateStr}\n` +
+      `Modèle  : Whisper medium (Transformers.js)\n` +
+      `${'─'.repeat(60)}\n\n`;
+    allText.push({
+      filename: entry.file.name.replace(/\.[^.]+$/, '') + '_transcription.txt',
+      content:  header + fileLines.join('\n')
+    });
+    downloadBtn.style.display = 'inline-block';
+
+  } catch(e) {
+    entry.error = e.message;
+    setRowStatus(entry, 'error');
+    statusMsg.textContent = 'Erreur : ' + e.message;
+  }
+
+  etaLbl.textContent = ''; statusMsg.textContent = '';
+  updateOverall();
+}
+
+// ── Rendering ──────────────────────────────────────────────────
+function appendMarker(text) {
+  const s = document.createElement('span');
+  s.className = 'marker-line'; s.textContent = text;
+  txBox.appendChild(s); txBox.scrollTop = txBox.scrollHeight;
+}
+function appendText(text) {
+  const s = document.createElement('span');
+  s.textContent = text + ' ';
+  txBox.appendChild(s); txBox.scrollTop = txBox.scrollHeight;
+}
+
+// ── Download ───────────────────────────────────────────────────
+downloadBtn.addEventListener('click', () => {
+  allText.forEach(f => {
+    const blob = new Blob([f.content], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = f.filename;
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+});
+
+// ── All done ───────────────────────────────────────────────────
+function onAllDone() {
+  currentLbl.textContent = 'Tous les fichiers traités'; etaLbl.textContent = '';
+  const errors = queue.filter(e => e.status === 'error');
+  const done   = queue.filter(e => e.status === 'done');
+  if (!errors.length) {
+    statusMsg.textContent = `✓ ${done.length} fichier(s) transcrits avec succès.`;
+  } else {
+    statusMsg.textContent = `⚠ ${errors.length} fichier(s) en erreur.`;
+    runBtn.disabled = false; runBtn.textContent = 'Réessayer';
+  }
+}
+</script>
+</body>
+</html>
