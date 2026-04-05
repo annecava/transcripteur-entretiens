@@ -514,6 +514,12 @@ async function processEntry(entry) {
 
     statusMsg.textContent = 'Transcription en cours…';
 
+    // Show cassette animation during transcription
+    const loaderWrap = document.getElementById('loader-wrap');
+    const loaderSub  = document.getElementById('loader-sub');
+    const loaderPct  = document.getElementById('loader-pct');
+    if (loaderWrap) { loaderSub.textContent = 'Transcription en cours…'; loaderPct.textContent = ''; loaderWrap.classList.add('visible'); }
+
     // Animated progress bar (indeterminate — Transformers.js doesn't expose per-chunk progress)
     let animPct = 3;
     animInterval = setInterval(() => {
@@ -529,22 +535,16 @@ async function processEntry(entry) {
     let nextMarker = MARKER_SECS;
     let paragraph  = [];
 
-    // callback_function is called after each internal chunk (supported in Transformers.js 3.x)
     const result = await pipe(raw, {
-      language: null,
       task: 'transcribe',
       return_timestamps: true,
       chunk_length_s: 30,
       stride_length_s: 5,
-      callback_function: (beams) => {
-        // beams is an array; extract the best hypothesis tokens for live display
-        // This fires during generation — we just use it to confirm activity
-        // Actual text is assembled from chunks below
-      },
     });
 
     clearInterval(animInterval);
     animInterval = null;
+    if (loaderWrap) loaderWrap.classList.remove('visible');
 
     // Process final result chunks for display and markers
     const chunks = result.chunks || [];
@@ -600,12 +600,15 @@ async function processEntry(entry) {
 
   } catch(e) {
     if (animInterval) { clearInterval(animInterval); animInterval = null; }
+    const lw = document.getElementById('loader-wrap'); if (lw) lw.classList.remove('visible');
     entry.error = e.message;
     setRowStatus(entry, 'error');
     fileFill.style.width = '0%';
     etaLbl.textContent = '';
     statusMsg.textContent = 'Erreur : ' + e.message;
     console.error('Transcription error:', e);
+    console.error('Error type:', e?.constructor?.name);
+    console.error('Error details:', JSON.stringify(e, Object.getOwnPropertyNames(e)));
   }
 
   statusMsg.textContent = '';
