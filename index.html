@@ -216,13 +216,13 @@
 </div>
 
 <script type="module">
-import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.2/dist/transformers.min.js';
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0/dist/transformers.min.js';
 
-env.allowLocalModels = false;
-env.useBrowserCache  = true;
+env.allowLocalModels  = false;
+env.useBrowserCache   = true;
 
 const AUDIO_EXTS  = new Set(['.mp3','.mp4','.m4a','.wav','.ogg','.flac','.webm','.mkv']);
-const MODEL_ID    = 'onnx-community/whisper-medium';
+const MODEL_ID    = 'Xenova/whisper-medium';
 const MARKER_SECS = 5 * 60;
 const MODEL_KEY   = 'transcripteur_model_cached';
 
