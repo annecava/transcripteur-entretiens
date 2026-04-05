@@ -491,14 +491,17 @@ async function processEntry(entry) {
   setRowStatus(entry, 'running');
   currentLbl.textContent = `En cours : ${entry.file.name}`;
   txLabel.textContent    = `Transcription — ${entry.file.name}`;
-  txBox.innerHTML = ''; fileFill.style.width = '0%'; etaLbl.textContent = '';
-  statusMsg.textContent  = 'Décodage audio…';
+  txBox.innerHTML = '';
+  fileFill.style.width = '0%';
+  etaLbl.textContent = '';
+  statusMsg.textContent = 'Décodage audio…';
 
   const fileLines = [];
   const startWall = Date.now();
+  let animInterval = null;
 
   try {
-    // Decode audio → mono Float32Array @ 16 kHz via AudioContext
+    // Decode audio to mono Float32 @ 16kHz
     const buf     = await entry.file.arrayBuffer();
     const actx    = new AudioContext({ sampleRate: 16000 });
     const decoded = await actx.decodeAudioData(buf);
@@ -511,85 +514,79 @@ async function processEntry(entry) {
 
     statusMsg.textContent = 'Transcription en cours…';
 
-    // Animate progress bar while waiting (indeterminate pulse)
-    let animPct = 5;
-    const animInterval = setInterval(() => {
-      animPct = Math.min(animPct + 0.3, 92);
+    // Animated progress bar (indeterminate — Transformers.js doesn't expose per-chunk progress)
+    let animPct = 3;
+    animInterval = setInterval(() => {
+      animPct = Math.min(animPct + 0.25, 93);
       fileFill.style.width = animPct + '%';
       const elapsed = (Date.now() - startWall) / 1000;
-      if (elapsed > 5) {
-        const speed = animPct / elapsed;
-        const remaining = Math.max(0, (100 - animPct) / speed);
+      if (elapsed > 8 && animPct > 5) {
+        const remaining = Math.max(0, elapsed / (animPct / 100) - elapsed);
         etaLbl.textContent = `Temps restant estimé : ${fmtDur(remaining)}`;
       }
-    }, 800);
+    }, 1000);
 
     let nextMarker = MARKER_SECS;
     let paragraph  = [];
 
-    // Use chunk_callback for streaming display — Transformers.js handles chunking internally
+    // callback_function is called after each internal chunk (supported in Transformers.js 3.x)
     const result = await pipe(raw, {
-      language: null,          // auto-detect language
+      language: null,
       task: 'transcribe',
       return_timestamps: true,
       chunk_length_s: 30,
       stride_length_s: 5,
-      chunk_callback: (chunkResult) => {
-        // Called after each 30s chunk is processed
-        const chunks = chunkResult.chunks || [];
-        for (const ch of chunks) {
-          const absStart = ch.timestamp?.[0] ?? 0;
-
-          // Insert 5-min markers
-          while (absStart >= nextMarker) {
-            if (paragraph.length) {
-              const t = paragraph.join(' ');
-              fileLines.push(t); appendText(t); paragraph = [];
-            }
-            const marker = `--- ${fmtTimestamp(nextMarker)} ---`;
-            fileLines.push('\n' + marker);
-            appendMarker(marker);
-            nextMarker += MARKER_SECS;
-          }
-
-          const t = (ch.text || '').trim();
-          if (t) paragraph.push(t);
-          if (paragraph.join(' ').length > 300) {
-            const txt = paragraph.join(' ');
-            fileLines.push(txt); appendText(txt); paragraph = [];
-          }
-        }
+      callback_function: (beams) => {
+        // beams is an array; extract the best hypothesis tokens for live display
+        // This fires during generation — we just use it to confirm activity
+        // Actual text is assembled from chunks below
       },
     });
 
     clearInterval(animInterval);
+    animInterval = null;
 
-    // Flush any remaining paragraph
+    // Process final result chunks for display and markers
+    const chunks = result.chunks || [];
+    if (chunks.length > 0) {
+      for (const ch of chunks) {
+        const absStart = ch.timestamp?.[0] ?? 0;
+
+        while (absStart >= nextMarker) {
+          if (paragraph.length) {
+            const t = paragraph.join(' ');
+            fileLines.push(t); appendText(t); paragraph = [];
+          }
+          const marker = `--- ${fmtTimestamp(nextMarker)} ---`;
+          fileLines.push('\n' + marker);
+          appendMarker(marker);
+          nextMarker += MARKER_SECS;
+        }
+
+        const t = (ch.text || '').trim();
+        if (t) paragraph.push(t);
+        if (paragraph.join(' ').length > 300) {
+          const txt = paragraph.join(' ');
+          fileLines.push(txt); appendText(txt); paragraph = [];
+        }
+      }
+    } else if (result.text) {
+      // Fallback: no chunks, use flat text
+      appendText(result.text.trim());
+      fileLines.push(result.text.trim());
+    }
+
     if (paragraph.length) {
       const txt = paragraph.join(' ');
       fileLines.push(txt); appendText(txt);
     }
 
-    // If chunk_callback was not fired (short files), fall back to final result
-    if (fileLines.length === 0) {
-      const chunks = result.chunks || [{ text: result.text, timestamp: [0, 0] }];
-      for (const ch of chunks) {
-        const absStart = ch.timestamp?.[0] ?? 0;
-        while (absStart >= nextMarker) {
-          const marker = `--- ${fmtTimestamp(nextMarker)} ---`;
-          fileLines.push('\n' + marker); appendMarker(marker);
-          nextMarker += MARKER_SECS;
-        }
-        const t = (ch.text || '').trim();
-        if (t) { fileLines.push(t); appendText(t); }
-      }
-    }
-
     fileFill.style.width = '100%';
+    etaLbl.textContent = '';
     setRowStatus(entry, 'done');
 
     const dateStr = new Date().toISOString().slice(0,16).replace('T',' ');
-    const header  =
+    const header =
       `TRANSCRIPTION\n` +
       `Fichier : ${entry.file.name}\n` +
       `Date    : ${dateStr}\n` +
@@ -602,13 +599,16 @@ async function processEntry(entry) {
     downloadBtn.style.display = 'inline-block';
 
   } catch(e) {
+    if (animInterval) { clearInterval(animInterval); animInterval = null; }
     entry.error = e.message;
     setRowStatus(entry, 'error');
+    fileFill.style.width = '0%';
+    etaLbl.textContent = '';
     statusMsg.textContent = 'Erreur : ' + e.message;
     console.error('Transcription error:', e);
   }
 
-  etaLbl.textContent = ''; statusMsg.textContent = '';
+  statusMsg.textContent = '';
   updateOverall();
 }
 
@@ -636,14 +636,20 @@ downloadBtn.addEventListener('click', () => {
 
 // ── All done ───────────────────────────────────────────────────
 function onAllDone() {
-  currentLbl.textContent = 'Tous les fichiers traités'; etaLbl.textContent = '';
+  currentLbl.textContent = '';
+  etaLbl.textContent = '';
+  fileFill.style.width = '0%';
   const errors = queue.filter(e => e.status === 'error');
   const done   = queue.filter(e => e.status === 'done');
   if (!errors.length) {
     statusMsg.textContent = `✓ ${done.length} fichier(s) transcrits avec succès.`;
   } else {
-    statusMsg.textContent = `⚠ ${errors.length} fichier(s) en erreur.`;
-    runBtn.disabled = false; runBtn.textContent = 'Réessayer';
+    // Only show retry for error files, don't keep animating
+    statusMsg.textContent = errors.length === queue.length
+      ? `⚠ Échec de la transcription. Vérifiez la console pour plus de détails.`
+      : `⚠ ${errors.length} fichier(s) en erreur, ${done.length} réussi(s).`;
+    runBtn.disabled = false;
+    runBtn.textContent = 'Réessayer les erreurs';
   }
 }
 </script>
